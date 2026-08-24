@@ -839,6 +839,44 @@ URL と統計表 ID もここに置きました。キーと違って秘密では
 
     一覧をリロードして、表示が変わらず動けば成功です。キーも URL も統計表 ID も、`.env` と config に移りました。
 
+説明のとおりになるか、`config:cache` を実行して確かめます。
+
+```sh
+./vendor/bin/sail artisan config:cache
+```
+
+一覧をリロードしても、表示は変わりません。`config()` が、まとめたときに保存された値を返しているためです。`env()` との差は tinker で見えます。
+
+```sh
+./vendor/bin/sail artisan tinker
+```
+
+```php
+env('ESTAT_APP_ID');
+```
+
+```
+= null
+```
+
+```php
+config('estat.app_id');
+```
+
+```
+= "（共有されたキーが表示される）"
+```
+
+開発中はキャッシュを使いません。`.env` や config を変えるたびに、まとめ直しが必要になるためです。exit で tinker を抜けて、元に戻します。
+
+```sh
+./vendor/bin/sail artisan config:clear
+```
+
+!!! success "確認"
+
+    `config:clear` のあとに一覧をリロードして、今までどおり表示されれば、元に戻っています。
+
 !!! warning "つまずきポイント：全国平均が出なくなった"
 
     - `.env` の行が `ESTAT_APP_ID=キー` の形になっているか（スペースや引用符が入っていないか）確認してください。
