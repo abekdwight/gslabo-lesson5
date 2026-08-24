@@ -1,0 +1,48 @@
+site_name: Laravel 3 — 家計簿を全国平均と比べる
+site_url: https://abekdwight.github.io/gslabo-lesson5/
+
+theme:
+  name: material
+  language: ja
+  font: false
+  palette:
+    scheme: default
+  features:
+    - content.code.copy
+    - toc.follow
+
+plugins:
+  - search:
+      lang: ja
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - tables
+  - toc:
+      toc_depth: 2
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.inlinehilite
+  - pymdownx.highlight:
+      anchor_linenums: false
+      extend_pygments_lang:
+        - name: php
+          lang: php
+          options:
+            startinline: true
+        - name: blade
+          lang: html+php
+          options:
+            startinline: true
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - "Laravel 3 — 家計簿を全国平均と比べる": index.md
