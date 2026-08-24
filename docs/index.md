@@ -1138,28 +1138,77 @@ tinker では `new StatisticsService()` と自分で作りました。同じ `ne
 // 自分で new して使う（この書き方でも動く）
 public function index()
 {
-    $statisticsService = new StatisticsService();
-    // 以下は同じ
+    $statisticsService = new StatisticsService();     // 用意する
+    $statisticsService->nationalAverageUtilityCost(); // 使う
 }
 
-// 引数で受け取って使う（今日書いた形）
+// 引数で受け取って使う（今日書いた形）。用意はサービスコンテナがしている
 public function index(StatisticsService $statisticsService)
 {
-    // 以下は同じ
+    $statisticsService->nationalAverageUtilityCost(); // 使う
 }
 ```
 
-違いは、StatisticsService を**用意する**仕事の置き場所です。上の形では、用意することと使うことの両方が `index()` の中にあります。下の形では、用意する仕事がサービスコンテナに移り、`index()` に残るのは使うことだけです。
+違いは、**用意する**仕事の置き場所だけです。`new` が1行減ることが目的ではありません。用意する仕事を `index()` の外に出すと、利点が2つ生まれます。
 
-`new` が1行減ることが目的ではありません。用意する仕事を外に出すと、利点が2つ生まれます。
+1つ目の利点は、1行目が「このメソッドは何を使うか」の宣言になることです。
 
-1つ目の利点は、メソッドの1行目を見るだけで、そのメソッドが何を必要とするか分かることです。`index(StatisticsService $statisticsService)` という宣言から、中を読まなくても、StatisticsService を使って動くことが分かります。先ほどの4つの例も同じです。`store(TransactionRequest $request)` の1行目からは検証を通った入力を使うことが、`edit(Transaction $transaction)` の1行目からはデータベースの1件を使うことが読み取れます。読み取るのは人だけではありません。エディタの補完も、コードを実行せずに間違いを探す検査も、同じ型宣言を読んで動きます。
+```php
+// この1行だけで、StatisticsService を使って動くことが分かる
+public function index(StatisticsService $statisticsService) {}
 
-2つ目の利点は、渡すものを外から変えられることです。`new` する形では、`index()` が使うものを変えるには、`index()` を書き換えるしかありません。引数で受け取る形では、用意する側が別のものを渡せば、`index()` はそのままで動きが変わります。たとえば、e-Stat と通信せずに決まった金額を返す、代わりの StatisticsService を渡せば、API につながらない環境でも一覧の画面は動かせます。
+// この1行だけで、検証を通った入力を使うことが分かる
+public function store(TransactionRequest $request) {}
+```
+
+読み取るのは人だけではありません。エディタの補完も、コードを実行せずに間違いを探す検査も、同じ型宣言を読んで動きます。
+
+受け取る場所は、メソッドの引数のほかに、コンストラクタの引数もあります。どちらもサービスコンテナが用意します。
+
+```php
+class TransactionController extends Controller
+{
+    private StatisticsService $statisticsService;
+
+    // インスタンスが作られるときに1回受け取って、プロパティに入れておく
+    public function __construct(StatisticsService $statisticsService)
+    {
+        $this->statisticsService = $statisticsService;
+    }
+
+    public function index()
+    {
+        // どのメソッドからも $this->statisticsService で使える
+    }
+}
+```
+
+こちらは**コンストラクタインジェクション**と呼びます。使うものが増えてくると、クラスの先頭を見るだけで何を使うクラスか分かるので、この形がよく使われます。
+
+2つ目の利点は、渡すものを外から変えられることです。たとえば、e-Stat と通信せずに決まった金額を返す、代わりのクラスを作ったとします。
+
+```php
+// StatisticsService の一種として扱われる、通信しない代わりのクラス
+class FixedAmountStatisticsService extends StatisticsService
+{
+    public function nationalAverageUtilityCost(): ?int
+    {
+        return 19837;
+    }
+}
+```
+
+```php
+// サービスコンテナに「StatisticsService の代わりにこちらを渡す」と登録できる。
+// そうすると index() は、1文字も変えずに通信しない版で動く
+public function index(StatisticsService $statisticsService) {}
+```
+
+API につながらない環境で画面側の作業を進めたいときに、この切り替えが使えます。`new` する形では、切り替えのたびに `index()` を書き換えることになります。
 
 コントローラの仕事は、リクエストを受けて結果をビューに渡すことでした。通信を StatisticsService に分けたのと同じ理由で、用意する仕事もコントローラには置かず、サービスコンテナに任せます。
 
-`index()` にとっての StatisticsService のように、動くために必要なものを**依存**と呼びます。依存を自分で `new` せず、外から引数で入れてもらうこの形が**依存注入**（Dependency Injection、DI）です。メソッドインジェクションの「インジェクション」は、この注入を指しています。
+`index()` にとっての StatisticsService のように、動くために必要なものを**依存**と呼びます。依存を自分で `new` せず、外から引数で入れてもらうこの形が**依存注入**（Dependency Injection、DI）です。メソッドインジェクションとコンストラクタインジェクションは、この注入をどちらの引数で受けるかの違いです。
 
 !!! info "ポイント：必要なクラスは引数の型で宣言する"
 
