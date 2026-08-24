@@ -6,10 +6,8 @@
 
 ゴールは、一覧の上に「今月の光熱費」と「全国平均」を並べて表示することです。
 
-<!-- 実測待ち: 全国平均の例値（23,791 は仮）。確定後、⑤の例と差額も合わせて更新 -->
-
 ```
-今月の光熱費　合計 ¥12,280 ／ 全国平均 ¥23,791 ／ 差 ¥-11,511
+今月の光熱費　合計 ¥12,280 ／ 全国平均 ¥19,837 ／ 差 ¥-7,557
 ```
 
 自分の合計は家計簿のデータベースから集計し、全国平均は政府統計（e-Stat）の API から取得します。家計簿が、外部のサービスと通信するアプリになります。
@@ -318,34 +316,37 @@ Transaction::whereIn('category_id', $utilityCategoryIds)
 
 API は、プログラムから呼び出すための URL です。開くと、HTML の画面ではなくデータ（JSON）が返ります。まずブラウザで開いてみます。次の URL の `（共有されたキー）` を、共有された appId に置き換えて開いてください。
 
-<!-- 実測待ち: cdTime=2026000606 は仮の最新月コード。getMetaInfo で確定後、②・④・パラメータ表の3箇所を同じ値に更新 -->
-
 ```
 https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData?appId=（共有されたキー）&statsDataId=0002070008&cdTab=01&cdCat01=107&cdCat02=03&cdCat03=00&cdArea=00000&cdTime=2026000606
 ```
 
-ブラウザに JSON が表示されます。整形すると、次の形をしています。
-
-<!-- 実測待ち: 正常応答の実サンプルに差し替え（VALUE が配列か単一オブジェクトか、値、@time）。以下は想定形 -->
+ブラウザに JSON が表示されます。整形して、途中を省略すると、次の形をしています。
 
 ```json
 {
   "GET_STATS_DATA": {
     "RESULT": {
       "STATUS": 0,
-      "ERROR_MSG": "正常に終了しました。"
+      "ERROR_MSG": "正常に終了しました。",
+      "DATE": "2026-08-25T00:18:49.189+09:00"
     },
+    "PARAMETER": { ... },
     "STATISTICAL_DATA": {
+      "RESULT_INF": { ... },
+      "TABLE_INF": { ... },
+      "CLASS_INF": { ... },
       "DATA_INF": {
-        "VALUE": [
-          {
-            "@tab": "01",
-            "@cat01": "107",
-            "@time": "2026000606",
-            "@unit": "円",
-            "$": "23791"
-          }
-        ]
+        "NOTE": [ ... ],
+        "VALUE": {
+          "@tab": "01",
+          "@cat01": "107",
+          "@cat02": "03",
+          "@cat03": "00",
+          "@area": "00000",
+          "@time": "2026000606",
+          "@unit": "円",
+          "$": "19837"
+        }
       }
     }
   }
@@ -365,7 +366,7 @@ URL の後半に並んでいたパラメータの意味は次のとおりです�
 | `cdCat02`     | `03`         | 世帯の区分（二人以上の世帯）               |
 | `cdCat03`     | `00`         | 世帯人員（平均）                           |
 | `cdArea`      | `00000`      | 地域（全国）                               |
-| `cdTime`      | `2026000606` | 対象の月                                   |
+| `cdTime`      | `2026000606` | 対象の月（2026年6月）                      |
 
 同じ呼び出しを、PHP から行います。①で開いた tinker に戻って実行してください。
 
@@ -400,14 +401,12 @@ $response->json();
 
 `json()` は、応答の JSON を PHP の配列にします。必要なのは金額だけなので、キーを `.` でつないで直接取り出します。
 
-<!-- 実測待ち: VALUE が単一オブジェクトの場合はパスから `.0` を外す。④の Service も同じパスに合わせる -->
-
 ```php
-$response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.0.$');
+$response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.$');
 ```
 
 ```
-= "23791"
+= "19837"
 ```
 
 全国平均の金額が、文字列で取れました。
@@ -494,8 +493,6 @@ config('estat.app_id');
 
 `app/Services/StatisticsService.php` を新規作成します。
 
-<!-- 実測待ち: cdTime と json() のパスを②の確定値に合わせる -->
-
 ```php
 <?php
 
@@ -521,7 +518,7 @@ class StatisticsService
             'cdTime' => '2026000606',
         ]);
 
-        $nationalAverageValue = $response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.0.$');
+        $nationalAverageValue = $response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.$');
 
         if ($nationalAverageValue === null) {
             return null;
@@ -553,7 +550,7 @@ $statisticsService->nationalAverageUtilityCost();
 
 ```
 [!] Aliasing 'StatisticsService' to 'App\Services\StatisticsService' for this Tinker session.
-= 23791
+= 19837
 ```
 
 !!! success "確認"
@@ -808,7 +805,7 @@ app(StatisticsService::class);
     ／ 差 ¥{{ number_format(（　） - （　）) }}
     ```
 
-    確認：一覧の上に「合計 ¥12,280 ／ 全国平均 ¥23,791 ／ 差 ¥-11,511」のように3つ並べば成功です。
+    確認：一覧の上に「合計 ¥12,280 ／ 全国平均 ¥19,837 ／ 差 ¥-7,557」のように3つ並べば成功です。
 
 ??? note "答え"
 
@@ -983,8 +980,6 @@ Note: Using configuration file /var/www/html/phpstan.neon.
 
 ## 授業のあとに試すこと
 
-<!-- 実測待ち: 内訳3件の VALUE 形と金額（108/109/111）を確認して例を追記 -->
-
-- **電気・ガス・水道の内訳を出す**：`cdCat01` を `108,109,111`（電気代・ガス代・上下水道料）にすると、`VALUE` が3件返ります。tinker で試して、`@cat01` ごとの金額を取り出してみてください。
+- **電気・ガス・水道の内訳を出す**：`cdCat01` を `108,109,111`（電気代・ガス代・上下水道料）にすると、`VALUE` が3件の配列で返ります（2026年6月の全国平均は、電気代 9,948円・ガス代 4,233円・上下水道料 5,269円）。1件のときと形が変わるので、tinker で `VALUE` までを取り出して、`@cat01` ごとの金額を取り出してみてください。
 - **世帯人数で比べる**：`cdCat03` は世帯人員の指定です。`00`（平均）のほかに、`01`（2人）〜`05`（6人以上）があります。自分の世帯に合わせて変えると、比較が実態に近づきます。
 - **自分の API キーを取る**：appId は [e-Stat の利用登録](https://www.e-stat.go.jp/api/) で無料で発行できます。`.env` のキーを自分のものに差し替えれば、このアプリは自分のキーだけで動きます。
