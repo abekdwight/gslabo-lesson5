@@ -1,4 +1,4 @@
-# Laravel 3 — 家計簿を全国平均と比べる
+# EXP Laravel③
 
 教材: https://abekdwight.github.io/gslabo-lesson5/
 
