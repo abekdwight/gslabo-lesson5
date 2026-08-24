@@ -18,7 +18,7 @@
 | ------------------------------------------------- | ------------------------------------------------------- |
 | `.env`                                            | `ESTAT_APP_ID` を1行追加する                            |
 | `config/estat.php`                                | 新規作成。API の設定をまとめる                          |
-| `app/Services/StatisticsService.php`              | 新規作成。e-Stat との通信を受け持つ                     |
+| `app/Services/StatisticsService.php`              | 新規作成。e-Stat から全国平均を取得する                 |
 | `app/Http/Controllers/TransactionController.php`  | `index()` で合計を集計し、サービスクラスを受け取る      |
 | `resources/views/transactions/index.blade.php`    | 比較の表示を足す                                        |
 
@@ -885,9 +885,7 @@ config('estat.app_id');
 
 ## ⑤ 通信をサービスクラスに移して、引数で受け取る
 
-`index()` が長くなりました。一覧の取得、集計、外部との通信、ビューへの受け渡しが、1つのメソッドに入っています。このうち外部のサービスとの通信は、コントローラに直接書かず、通信だけを受け持つクラスに分けて置くのが定石です。この形のクラスを**サービスクラス**と呼びます。
-
-分け方には線があります。サービスクラスが受け持つのは**通信の知識**（どの URL を、どのキーで、どんな形で呼び、応答のどこから値を取るか）だけです。**何を取るか**（検索条件）は、家計簿側の決めごとなので、呼ぶ側が渡します。
+`index()` が長くなりました。一覧の取得、集計、外部との通信、ビューへの受け渡しが、1つのメソッドに入っています。このうち外部のサービスとの通信は、コントローラに直接書かず、通信だけを受け持つクラスに分けて置くのが定石です。コントローラの仕事はリクエストを受けて結果をビューに渡すことで、どの URL をどんなパラメータで呼ぶかは、別の関心事だからです。この形のクラスを**サービスクラス**と呼びます。
 
 これまでのクラスと違って、`make:controller` や `make:request` のような生成コマンドはありません。サービスクラスは Laravel の部品ではなく、ただの PHP クラスです。置き場所は `app/Services/` にするのが慣例で、フォルダから自分で作ります。
 
@@ -903,36 +901,37 @@ use Illuminate\Support\Facades\Http;
 class StatisticsService
 {
     /**
-     * 家計調査（e-Stat）から、検索条件に一致する金額（円）を1件取得する。
-     * 取れなかったときは null。
+     * 「光熱・水道」の全国平均月額（円）を返す。応答から金額を取れなかったときは null。
      */
-    public function fetchAmount(array $searchConditions): ?int
+    public function nationalAverageUtilityCost(): ?int
     {
-        $query = array_merge([
+        $response = Http::timeout(5)->get(config('estat.endpoint'), [
             'appId' => config('estat.app_id'),
             'statsDataId' => config('estat.stats_data_id'),
-        ], $searchConditions);
+            'cdTab' => '01',
+            'cdCat01' => '107',
+            'cdCat02' => '03',
+            'cdCat03' => '00',
+            'cdArea' => '00000',
+            'cdTime' => '2026000606',
+        ]);
 
-        $response = Http::timeout(5)->get(config('estat.endpoint'), $query);
+        $nationalAverageValue = $response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.$');
 
-        $amount = $response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.$');
-
-        if ($amount === null) {
+        if ($nationalAverageValue === null) {
             return null;
         }
 
-        return (int) $amount;
+        return (int) $nationalAverageValue;
     }
 }
 ```
 
-このクラスに移したのは、④までコントローラにあった通信の知識です。URL・キー・統計表 ID（`array_merge()` で検索条件の手前に足しています）、JSON から金額を取り出すパス、そして次の3つを足しました。
+中身は④までコントローラにあった呼び出しを移したもので、次の3つを足しました。
 
 - `timeout(5)`：相手が応答しないとき、5秒で打ち切る指定です。
 - 戻り値の型 `?int`：「int または null」という意味です。応答に金額が無いとき（キーの間違い、API 側の障害など）、`json('...')` は null を返すので、それをそのまま null として返します。
 - `(int)`：金額は文字列で返ってくるので、整数にして返します。
-
-検索条件（cdTab や cdCat01 など）は、このクラスには書きません。引数 `$searchConditions` で受け取ります。
 
 作ったクラスを tinker で動かします。tinker が新しいクラスを短い名前で見つけられるように、先に `dump-autoload` を実行してから開きます。
 
@@ -943,14 +942,7 @@ class StatisticsService
 
 ```php
 $statisticsService = new StatisticsService();
-$statisticsService->fetchAmount([
-    'cdTab' => '01',
-    'cdCat01' => '107',
-    'cdCat02' => '03',
-    'cdCat03' => '00',
-    'cdArea' => '00000',
-    'cdTime' => '2026000606',
-]);
+$statisticsService->nationalAverageUtilityCost();
 ```
 
 ```
@@ -964,7 +956,7 @@ $statisticsService->fetchAmount([
 
 `new` で作って、そのまま呼び出せました。次に、コントローラから使います。
 
-`TransactionController.php` を書き換えます。`use` に `StatisticsService` の1行を足し、`index()` からは通信を消して、検索条件だけを残します。条件は、引数で受け取ったサービスに渡します。もう使わなくなる `use Illuminate\Support\Facades\Http;` は消します。
+`TransactionController.php` を書き換えます。`use` に `StatisticsService` の1行を足し、`index()` の中の通信を消して、引数で受け取ります。もう使わなくなる `use Illuminate\Support\Facades\Http;` は消します。
 
 === "書き換える部分"
 
@@ -984,20 +976,10 @@ $statisticsService->fetchAmount([
             ->whereBetween('occurred_at', [now()->startOfMonth()->format('Y-m-d'), now()->endOfMonth()->format('Y-m-d')])
             ->sum('amount');
 
-        $utilityCostSearchConditions = [
-            'cdTab' => '01',
-            'cdCat01' => '107',
-            'cdCat02' => '03',
-            'cdCat03' => '00',
-            'cdArea' => '00000',
-            'cdTime' => '2026000606',
-        ];
-        $nationalAverageUtilityCost = $statisticsService->fetchAmount($utilityCostSearchConditions);
-
         return view('transactions.index', [
             'transactions' => $transactions,
             'thisMonthUtilityTotal' => $thisMonthUtilityTotal,
-            'nationalAverageUtilityCost' => $nationalAverageUtilityCost,
+            'nationalAverageUtilityCost' => $statisticsService->nationalAverageUtilityCost(),
         ]);
     }
     ```
@@ -1030,20 +1012,10 @@ $statisticsService->fetchAmount([
                 ->whereBetween('occurred_at', [now()->startOfMonth()->format('Y-m-d'), now()->endOfMonth()->format('Y-m-d')])
                 ->sum('amount');
 
-            $utilityCostSearchConditions = [
-                'cdTab' => '01',
-                'cdCat01' => '107',
-                'cdCat02' => '03',
-                'cdCat03' => '00',
-                'cdArea' => '00000',
-                'cdTime' => '2026000606',
-            ];
-            $nationalAverageUtilityCost = $statisticsService->fetchAmount($utilityCostSearchConditions);
-
             return view('transactions.index', [
                 'transactions' => $transactions,
                 'thisMonthUtilityTotal' => $thisMonthUtilityTotal,
-                'nationalAverageUtilityCost' => $nationalAverageUtilityCost,
+                'nationalAverageUtilityCost' => $statisticsService->nationalAverageUtilityCost(),
             ]);
         }
 
@@ -1114,12 +1086,12 @@ $statisticsService->fetchAmount([
 
 !!! success "確認"
 
-    **見た目が何も変わらないことが成功です。** 表示は④までと同じで、違いはコードの側にあります。通信の知識が StatisticsService にまとまり、`index()` に残ったのは検索条件と受け渡しです。
+    **見た目が何も変わらないことが成功です。** 表示は④までと同じで、違いはコードの側にあります。外部との通信が StatisticsService の1箇所にまとまり、`index()` は集計と受け渡しに戻りました。
 
 !!! warning "つまずきポイント：エラーになる・平均が出ない"
 
     - `Class "App\Services\StatisticsService" does not exist`：コントローラの `use App\Services\StatisticsService;` の書き忘れか、ファイルの置き場所・`namespace App\Services;` の書き間違いです。
-    - 合計だけが表示される：平均が null です。この節の tinker と同じ `fetchAmount([...])` をもう一度実行して、②のつまずきポイント（`RESULT` の見方）で理由を確かめてください。
+    - 合計だけが表示される：平均が null です。tinker で `(new StatisticsService())->nationalAverageUtilityCost()` を実行して、②のつまずきポイント（`RESULT` の見方）で理由を確かめてください。
 
 ### 引数は Laravel が用意している
 
@@ -1232,7 +1204,7 @@ app(StatisticsService::class);
 - 集計はクエリメソッド（`whereIn`・`whereBetween`・`sum`）で組み立てて、データベースに計算させる。
 - 外部 API は `Http::get()` で呼び出し、`->json('キー.キー')` で値を取り出す。
 - API キーは `.env` に置き、`config/estat.php` を経由して `config('estat.app_id')` で読む。`env()` を書くのは config の中だけ。
-- 外部との通信はサービスクラスに分けて置く。サービスクラスが受け持つのは通信の知識で、何を取るか（検索条件）は呼ぶ側が渡す。サービスクラスはただの PHP クラスで、`app/Services/` に手で作る。
+- 外部との通信はサービスクラスに分けて置く。サービスクラスはただの PHP クラスで、`app/Services/` に手で作る。
 - コントローラの引数は、型宣言を見てサービスコンテナが用意している。自作クラスも、Request も、モデルも、同じ仕組みで渡されている。
 
 家計簿は、登録・一覧・編集・削除、操作の結果表示、入力の検証、そして外部データとの比較まで持つアプリになりました。ここまでで完成です。
@@ -1242,6 +1214,183 @@ app(StatisticsService::class);
 ## 時間が余ったら
 
 ここから先は、時間内に終わらなくても構いません。
+
+### 検索条件を呼ぶ側に移す
+
+⑤のサービスクラスは、コントローラにあったコードをそのまま移した形です。動きますが、メソッドは「光熱・水道の全国平均」という1つの用途に固定で、検索条件もクラスの中に埋まっています。役割の線を引き直します。
+
+サービスクラスが受け持つのを、**通信の知識**（どの URL を、どのキーで、どんな形で呼び、応答のどこから値を取るか）だけにします。**何を取るか**（検索条件）は、家計簿側の決めごとなので、呼ぶ側が渡す形にします。
+
+`app/Services/StatisticsService.php` を、次の内容に置き換えます。
+
+```php
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\Http;
+
+class StatisticsService
+{
+    /**
+     * 家計調査（e-Stat）から、検索条件に一致する金額（円）を1件取得する。
+     * 取れなかったときは null。
+     */
+    public function fetchAmount(array $searchConditions): ?int
+    {
+        $query = array_merge([
+            'appId' => config('estat.app_id'),
+            'statsDataId' => config('estat.stats_data_id'),
+        ], $searchConditions);
+
+        $response = Http::timeout(5)->get(config('estat.endpoint'), $query);
+
+        $amount = $response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.$');
+
+        if ($amount === null) {
+            return null;
+        }
+
+        return (int) $amount;
+    }
+}
+```
+
+`array_merge()` は、2つの配列をつないで1つにする関数です。キーと統計表 ID の手前に、受け取った検索条件をつなげています。
+
+`TransactionController.php` の `index()` が、検索条件を持つ側になります。
+
+=== "書き換える部分"
+
+    ```php
+    $utilityCostSearchConditions = [
+        'cdTab' => '01',
+        'cdCat01' => '107',
+        'cdCat02' => '03',
+        'cdCat03' => '00',
+        'cdArea' => '00000',
+        'cdTime' => '2026000606',
+    ];
+
+    return view('transactions.index', [
+        'transactions' => $transactions,
+        'thisMonthUtilityTotal' => $thisMonthUtilityTotal,
+        'nationalAverageUtilityCost' => $statisticsService->fetchAmount($utilityCostSearchConditions),
+    ]);
+    ```
+
+=== "TransactionController.php 全文"
+
+    ```php
+    <?php
+
+    namespace App\Http\Controllers;
+
+    use App\Http\Requests\TransactionRequest;
+    use App\Models\Category;
+    use App\Models\Transaction;
+    use App\Services\StatisticsService;
+
+    class TransactionController extends Controller
+    {
+        /**
+         * Display a listing of the resource.
+         */
+        public function index(StatisticsService $statisticsService)
+        {
+            $transactions = Transaction::with('category')->latest('occurred_at')->get();
+
+            $utilityCategoryNames = ['電気代', 'ガス代', '水道代'];
+            $utilityCategoryIds = Category::whereIn('name', $utilityCategoryNames)->pluck('id');
+
+            $thisMonthUtilityTotal = Transaction::whereIn('category_id', $utilityCategoryIds)
+                ->whereBetween('occurred_at', [now()->startOfMonth()->format('Y-m-d'), now()->endOfMonth()->format('Y-m-d')])
+                ->sum('amount');
+
+            $utilityCostSearchConditions = [
+                'cdTab' => '01',
+                'cdCat01' => '107',
+                'cdCat02' => '03',
+                'cdCat03' => '00',
+                'cdArea' => '00000',
+                'cdTime' => '2026000606',
+            ];
+
+            return view('transactions.index', [
+                'transactions' => $transactions,
+                'thisMonthUtilityTotal' => $thisMonthUtilityTotal,
+                'nationalAverageUtilityCost' => $statisticsService->fetchAmount($utilityCostSearchConditions),
+            ]);
+        }
+
+        /**
+         * Show the form for creating a new resource.
+         */
+        public function create()
+        {
+            return view('transactions.create', [
+                'categories' => Category::all(),
+            ]);
+        }
+
+        /**
+         * Store a newly created resource in storage.
+         */
+        public function store(TransactionRequest $request)
+        {
+            $validated = $request->validated();
+
+            Transaction::create($validated);
+
+            return redirect('/transactions')->with('message', '登録しました');
+        }
+
+        /**
+         * Display the specified resource.
+         */
+        public function show(Transaction $transaction)
+        {
+            //
+        }
+
+        /**
+         * Show the form for editing the specified resource.
+         */
+        public function edit(Transaction $transaction)
+        {
+            return view('transactions.edit', [
+                'transaction' => $transaction,
+                'categories' => Category::all(),
+            ]);
+        }
+
+        /**
+         * Update the specified resource in storage.
+         */
+        public function update(TransactionRequest $request, Transaction $transaction)
+        {
+            $validated = $request->validated();
+
+            $transaction->update($validated);
+
+            return redirect('/transactions')->with('message', '更新しました');
+        }
+
+        /**
+         * Remove the specified resource from storage.
+         */
+        public function destroy(Transaction $transaction)
+        {
+            $transaction->delete();
+
+            return redirect('/transactions')->with('message', '削除しました');
+        }
+    }
+    ```
+
+!!! success "確認"
+
+    一覧をリロードして、表示が変わらなければ成功です。別の統計が欲しくなったときは、条件を変えて `fetchAmount()` を呼ぶだけになりました。
 
 ### 型の間違いを Larastan に探させる
 
@@ -1343,6 +1492,6 @@ Note: Using configuration file /var/www/html/phpstan.neon.
 
 ## 授業のあとに試すこと
 
-- **電気・ガス・水道の内訳を出す**：検索条件の `cdCat01` を `108`（電気代）・`109`（ガス代）・`111`（上下水道料）に変えて `fetchAmount()` を3回呼ぶと、内訳が取れます（2026年6月の全国平均は、電気代 9,948円・ガス代 4,233円・上下水道料 5,269円）。
+- **電気・ガス・水道の内訳を出す**：検索条件の `cdCat01` を `108`（電気代）・`109`（ガス代）・`111`（上下水道料）に変えて1件ずつ取ると、内訳が取れます（2026年6月の全国平均は、電気代 9,948円・ガス代 4,233円・上下水道料 5,269円）。
 - **世帯人数で比べる**：検索条件の `cdCat03` は世帯人員の指定です。`00`（平均）のほかに、`01`（2人）〜`05`（6人以上）があります。自分の世帯に合わせて変えると、比較が実態に近づきます。
 - **自分の API キーを取る**：appId は [e-Stat の利用登録](https://www.e-stat.go.jp/api/) で無料で発行できます。`.env` のキーを自分のものに差し替えれば、このアプリは自分のキーだけで動きます。
