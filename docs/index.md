@@ -1099,12 +1099,19 @@ $statisticsService->nationalAverageUtilityCost();
 
 Laravel は、コントローラのメソッドを呼ぶ前に引数の型宣言を見て、必要なものを用意してから呼び出します。今日の StatisticsService だけでなく、これまで書いてきた引数も、この仕組みで渡されていました。
 
-| 引数の書き方                                        | Laravel が用意するもの                                                       | 書いた場所                                 |
-| --------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------ |
-| `StatisticsService $statisticsService`              | 新しく作ったインスタンス                                                     | 今日の `index()`                           |
-| `Request $request`                                  | 処理中のリクエスト                                                           | 前々回の `store()`                         |
-| `TransactionRequest $request`                       | 作って、`rules()` の検証を通してから渡す。失敗したらメソッドは呼ばれない     | 前回の `store()`・`update()`               |
-| `Transaction $transaction`（URL の `{transaction}` と同名） | データベースから探した1件。見つからなければ 404                       | 前回の `edit()`・`update()`・`destroy()`   |
+```php
+// 新しく作ったインスタンスが渡される
+public function index(StatisticsService $statisticsService) {}
+
+// 処理中のリクエストが渡される
+public function store(Request $request) {}
+
+// rules() の検証を通ってから渡される。失敗したらこのメソッドは呼ばれない
+public function store(TransactionRequest $request) {}
+
+// URL の {transaction} と同名なので、データベースから探した1件が渡される。見つからなければ 404
+public function edit(Transaction $transaction) {}
+```
 
 この解決を担当しているのが**サービスコンテナ**です。引数の型宣言で受け取る書き方を**メソッドインジェクション**と呼びます。[コントローラと依存注入](https://readouble.com/laravel/13.x/ja/controllers.html#dependency-injection-and-controllers)、[サービスコンテナ](https://readouble.com/laravel/13.x/ja/container.html)
 
