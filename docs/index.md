@@ -1129,8 +1129,6 @@ app(StatisticsService::class);
 
 前回、`store(Request $request)` の `Request` を `TransactionRequest` に差し替えたとき、変えたのは型宣言だけでした。あの差し替えだけで検証まで動くようになったのは、Laravel が引数を型で判断して用意しているからです。
 
-引数の並びは、**用意してもらうものを前に、URL の `{}` に対応するものを後に**書きます。`update(TransactionRequest $request, Transaction $transaction)` は、この並びです。
-
 !!! info "ポイント：必要なクラスは引数の型で宣言する"
 
     自作のクラスも、型を書けば Laravel が作って渡してくれます。サービスクラスが増えても、コントローラに `new` を並べる必要はありません。
