@@ -28,10 +28,10 @@
 | ---------------------------------------- | -------------------------------------------------------------------- | ------------ |
 | **クエリメソッド（whereIn / sum など）** | 検索や集計の条件を組み立てて、データベースに計算させる書き方         | ①            |
 | **HTTP クライアント（Http）**            | PHP のコードから外部の URL を呼び出す機能                            | ②            |
-| **.env と config**                       | API キーのような、コードに直接書かない値の置き場所                   | ③            |
-| **サービスクラス**                       | コントローラから処理を分けて置く、自作の PHP クラス                  | ④            |
-| **サービスコンテナ**                     | 型宣言されたクラスのインスタンスを作って渡す、Laravel の仕組み       | ④            |
-| **メソッドインジェクション**             | メソッドの引数に型を書いて、サービスコンテナから受け取る書き方       | ④            |
+| **.env と config**                       | API キーのような、コードに直接書かない値の置き場所                   | ④            |
+| **サービスクラス**                       | コントローラから処理を分けて置く、自作の PHP クラス                  | ⑤            |
+| **サービスコンテナ**                     | 型宣言されたクラスのインスタンスを作って渡す、Laravel の仕組み       | ⑤            |
+| **メソッドインジェクション**             | メソッドの引数に型を書いて、サービスコンテナから受け取る書き方       | ⑤            |
 
 ## 事前準備
 
@@ -431,9 +431,234 @@ $response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.$');
 
     `ERROR_MSG` に理由が入っています。「認証に失敗しました。アプリケーションIDを確認してください。」なら、`appId` の貼り間違いです。
 
-## ③ API キーを .env と config に置く
+## ③ コントローラに組み込む
 
-②では、キーを tinker に直接貼り付けました。アプリのコードで同じことをすると、キーがファイルに残り、Git に入って公開されてしまいます。キーのような秘密の値は、コードではなく `.env` に置きます。
+tinker で取れた値を、画面に出します。tinker に打った呼び出しを、そのまま `index()` に書きます。`app/Http/Controllers/TransactionController.php` を書き換えます。`use` に `Http` の1行を足し、`index()` に通信と、ビューに渡す1行を足します。
+
+=== "書き換える部分"
+
+    ```php
+    use Illuminate\Support\Facades\Http;
+    ```
+
+    ```php
+    public function index()
+    {
+        $transactions = Transaction::with('category')->latest('occurred_at')->get();
+
+        $utilityCategoryNames = ['電気代', 'ガス代', '水道代'];
+        $utilityCategoryIds = Category::whereIn('name', $utilityCategoryNames)->pluck('id');
+
+        $thisMonthUtilityTotal = Transaction::whereIn('category_id', $utilityCategoryIds)
+            ->whereBetween('occurred_at', [now()->startOfMonth()->format('Y-m-d'), now()->endOfMonth()->format('Y-m-d')])
+            ->sum('amount');
+
+        $response = Http::get('https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData', [
+            'appId' => '（共有されたキー）',
+            'statsDataId' => '0002070008',
+            'cdTab' => '01',
+            'cdCat01' => '107',
+            'cdCat02' => '03',
+            'cdCat03' => '00',
+            'cdArea' => '00000',
+            'cdTime' => '2026000606',
+        ]);
+        $nationalAverageUtilityCost = $response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.$');
+
+        return view('transactions.index', [
+            'transactions' => $transactions,
+            'thisMonthUtilityTotal' => $thisMonthUtilityTotal,
+            'nationalAverageUtilityCost' => $nationalAverageUtilityCost,
+        ]);
+    }
+    ```
+
+=== "TransactionController.php 全文"
+
+    ```php
+    <?php
+
+    namespace App\Http\Controllers;
+
+    use App\Http\Requests\TransactionRequest;
+    use App\Models\Category;
+    use App\Models\Transaction;
+    use Illuminate\Support\Facades\Http;
+
+    class TransactionController extends Controller
+    {
+        /**
+         * Display a listing of the resource.
+         */
+        public function index()
+        {
+            $transactions = Transaction::with('category')->latest('occurred_at')->get();
+
+            $utilityCategoryNames = ['電気代', 'ガス代', '水道代'];
+            $utilityCategoryIds = Category::whereIn('name', $utilityCategoryNames)->pluck('id');
+
+            $thisMonthUtilityTotal = Transaction::whereIn('category_id', $utilityCategoryIds)
+                ->whereBetween('occurred_at', [now()->startOfMonth()->format('Y-m-d'), now()->endOfMonth()->format('Y-m-d')])
+                ->sum('amount');
+
+            $response = Http::get('https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData', [
+                'appId' => '（共有されたキー）',
+                'statsDataId' => '0002070008',
+                'cdTab' => '01',
+                'cdCat01' => '107',
+                'cdCat02' => '03',
+                'cdCat03' => '00',
+                'cdArea' => '00000',
+                'cdTime' => '2026000606',
+            ]);
+            $nationalAverageUtilityCost = $response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.$');
+
+            return view('transactions.index', [
+                'transactions' => $transactions,
+                'thisMonthUtilityTotal' => $thisMonthUtilityTotal,
+                'nationalAverageUtilityCost' => $nationalAverageUtilityCost,
+            ]);
+        }
+
+        /**
+         * Show the form for creating a new resource.
+         */
+        public function create()
+        {
+            return view('transactions.create', [
+                'categories' => Category::all(),
+            ]);
+        }
+
+        /**
+         * Store a newly created resource in storage.
+         */
+        public function store(TransactionRequest $request)
+        {
+            $validated = $request->validated();
+
+            Transaction::create($validated);
+
+            return redirect('/transactions')->with('message', '登録しました');
+        }
+
+        /**
+         * Display the specified resource.
+         */
+        public function show(Transaction $transaction)
+        {
+            //
+        }
+
+        /**
+         * Show the form for editing the specified resource.
+         */
+        public function edit(Transaction $transaction)
+        {
+            return view('transactions.edit', [
+                'transaction' => $transaction,
+                'categories' => Category::all(),
+            ]);
+        }
+
+        /**
+         * Update the specified resource in storage.
+         */
+        public function update(TransactionRequest $request, Transaction $transaction)
+        {
+            $validated = $request->validated();
+
+            $transaction->update($validated);
+
+            return redirect('/transactions')->with('message', '更新しました');
+        }
+
+        /**
+         * Remove the specified resource from storage.
+         */
+        public function destroy(Transaction $transaction)
+        {
+            $transaction->delete();
+
+            return redirect('/transactions')->with('message', '削除しました');
+        }
+    }
+    ```
+
+一覧に全国平均を足します。`resources/views/transactions/index.blade.php` の「今月の光熱費」の段落を書き換えます。
+
+=== "書き換える部分"
+
+    ```blade
+    <h2>今月の光熱費</h2>
+    <p>
+        合計 ¥{{ number_format($thisMonthUtilityTotal) }}
+        @if ($nationalAverageUtilityCost !== null)
+            ／ 全国平均 ¥{{ number_format($nationalAverageUtilityCost) }}
+        @endif
+    </p>
+    ```
+
+=== "index.blade.php 全文"
+
+    ```blade
+    <x-layout>
+        <h2>今月の光熱費</h2>
+        <p>
+            合計 ¥{{ number_format($thisMonthUtilityTotal) }}
+            @if ($nationalAverageUtilityCost !== null)
+                ／ 全国平均 ¥{{ number_format($nationalAverageUtilityCost) }}
+            @endif
+        </p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>日付</th>
+                    <th>カテゴリ</th>
+                    <th>区分</th>
+                    <th class="amount">金額</th>
+                    <th>メモ</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($transactions as $transaction)
+                    <tr>
+                        <td>{{ $transaction->occurred_at }}</td>
+                        <td>{{ $transaction->category->name }}</td>
+                        <td>{{ $transaction->type === 'income' ? '収入' : '支出' }}</td>
+                        <td class="amount">¥{{ number_format($transaction->amount) }}</td>
+                        <td>{{ $transaction->note }}</td>
+                        <td>
+                            <a href="{{ route('transactions.edit', $transaction) }}">編集</a>
+                            <form method="POST" action="{{ route('transactions.destroy', $transaction) }}">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" onclick="return confirm('本当に削除しますか？')">削除</button>
+                            </form>
+                        </td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </x-layout>
+    ```
+
+`@if` は、平均が取得できなかったとき（null のとき）に、その部分だけ表示しない分岐です。
+
+!!! success "確認"
+
+    一覧の上に「合計 ¥…… ／ 全国平均 ¥……」と並べば成功です。
+
+!!! warning "つまずきポイント：全国平均が出ない"
+
+    - コントローラに貼ったコードの `appId` が `（共有されたキー）` の文字のまま残っていないか確認してください。
+    - ②の tinker では取れていたかを思い出してください。取れていなかった場合は、②のつまずきポイント（`RESULT` の見方）で理由を確認できます。
+
+## ④ キーを .env と config に移す
+
+動きましたが、コントローラにキーがそのまま書いてあります。このファイルをコミットすると、キーごと Git に入って公開されてしまいます。キーのような秘密の値は、コードではなく `.env` に置きます。
 
 `.env` は前回、`APP_LOCALE=ja` で書き換えたファイルです。末尾に1行追加します。
 
@@ -447,7 +672,21 @@ ESTAT_APP_ID=（共有されたキー）
 
     appId は、コードや GitHub に書かないでください。置き場所は `.env` だけです。
 
-次に、コードから読むための設定ファイルを作ります。`config/estat.php` を新規作成します。
+コントローラを、`.env` を読む形に書き換えます。`index()` の `'appId'` の行を変えます。
+
+```php
+'appId' => env('ESTAT_APP_ID'),
+```
+
+`env('ESTAT_APP_ID')` は、`.env` の値を読む関数です。前回、`config/app.php` の中に `'locale' => env('APP_LOCALE', 'en')` と書かれているのを見ました。同じ形です。
+
+!!! success "確認"
+
+    一覧をリロードして、③と同じ表示のまま動けば成功です。キーはコードから消えました。
+
+ただ、`env()` をコントローラから直接呼ぶ形も、よくありません。本番環境には設定を1つにまとめて読み込む機能があり、その状態では `env()` が値を返さなくなります。設定値がコードのあちこちに散らばっていく問題もあります。環境の値は config のファイルで受けて、アプリのコードは `config()` で読む形にします。
+
+その config のファイルを作ります。`config/estat.php` を新規作成します。
 
 ```php
 <?php
@@ -459,41 +698,156 @@ return [
 ];
 ```
 
-`config/` のファイルは、配列を return するだけの PHP ファイルです。ファイル名とキーをつないで、`config('estat.app_id')` のように読めます。`env('ESTAT_APP_ID')` は `.env` の値を読む関数です。前回、`config/app.php` の中に `'locale' => env('APP_LOCALE', 'en')` と書かれているのを見ました。今回は、同じ形を自分で書きます。
+`config/` のファイルは、配列を return するだけの PHP ファイルです。ファイル名とキーをつないで、`config('estat.app_id')` のように読めます。前回 `config/app.php` で見た形を、今回は自分で書きます。
 
 URL と統計表 ID もここに置きました。キーと違って秘密ではありませんが、「どの API をどう呼ぶか」という設定値は、処理のコードと分けて1箇所に集めます。
 
+コントローラを、config から読む形に書き換えます。URL・キー・統計表 ID の3箇所です。
+
+=== "書き換える部分"
+
+    ```php
+    $response = Http::get(config('estat.endpoint'), [
+        'appId' => config('estat.app_id'),
+        'statsDataId' => config('estat.stats_data_id'),
+        'cdTab' => '01',
+        'cdCat01' => '107',
+        'cdCat02' => '03',
+        'cdCat03' => '00',
+        'cdArea' => '00000',
+        'cdTime' => '2026000606',
+    ]);
+    ```
+
+=== "TransactionController.php 全文"
+
+    ```php
+    <?php
+
+    namespace App\Http\Controllers;
+
+    use App\Http\Requests\TransactionRequest;
+    use App\Models\Category;
+    use App\Models\Transaction;
+    use Illuminate\Support\Facades\Http;
+
+    class TransactionController extends Controller
+    {
+        /**
+         * Display a listing of the resource.
+         */
+        public function index()
+        {
+            $transactions = Transaction::with('category')->latest('occurred_at')->get();
+
+            $utilityCategoryNames = ['電気代', 'ガス代', '水道代'];
+            $utilityCategoryIds = Category::whereIn('name', $utilityCategoryNames)->pluck('id');
+
+            $thisMonthUtilityTotal = Transaction::whereIn('category_id', $utilityCategoryIds)
+                ->whereBetween('occurred_at', [now()->startOfMonth()->format('Y-m-d'), now()->endOfMonth()->format('Y-m-d')])
+                ->sum('amount');
+
+            $response = Http::get(config('estat.endpoint'), [
+                'appId' => config('estat.app_id'),
+                'statsDataId' => config('estat.stats_data_id'),
+                'cdTab' => '01',
+                'cdCat01' => '107',
+                'cdCat02' => '03',
+                'cdCat03' => '00',
+                'cdArea' => '00000',
+                'cdTime' => '2026000606',
+            ]);
+            $nationalAverageUtilityCost = $response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.$');
+
+            return view('transactions.index', [
+                'transactions' => $transactions,
+                'thisMonthUtilityTotal' => $thisMonthUtilityTotal,
+                'nationalAverageUtilityCost' => $nationalAverageUtilityCost,
+            ]);
+        }
+
+        /**
+         * Show the form for creating a new resource.
+         */
+        public function create()
+        {
+            return view('transactions.create', [
+                'categories' => Category::all(),
+            ]);
+        }
+
+        /**
+         * Store a newly created resource in storage.
+         */
+        public function store(TransactionRequest $request)
+        {
+            $validated = $request->validated();
+
+            Transaction::create($validated);
+
+            return redirect('/transactions')->with('message', '登録しました');
+        }
+
+        /**
+         * Display the specified resource.
+         */
+        public function show(Transaction $transaction)
+        {
+            //
+        }
+
+        /**
+         * Show the form for editing the specified resource.
+         */
+        public function edit(Transaction $transaction)
+        {
+            return view('transactions.edit', [
+                'transaction' => $transaction,
+                'categories' => Category::all(),
+            ]);
+        }
+
+        /**
+         * Update the specified resource in storage.
+         */
+        public function update(TransactionRequest $request, Transaction $transaction)
+        {
+            $validated = $request->validated();
+
+            $transaction->update($validated);
+
+            return redirect('/transactions')->with('message', '更新しました');
+        }
+
+        /**
+         * Remove the specified resource from storage.
+         */
+        public function destroy(Transaction $transaction)
+        {
+            $transaction->delete();
+
+            return redirect('/transactions')->with('message', '削除しました');
+        }
+    }
+    ```
+
 !!! info "ポイント：env() を書くのは config の中だけ"
 
-    アプリのコード（コントローラや、この後作るサービスクラス）からは、`env()` ではなく `config()` で読みます。本番環境には設定を1つにまとめて読み込む機能があり、その状態では `env()` が値を返さなくなるためです。`.env` の値は config だけが読み、アプリのコードは `config()` で読む。この形にしておけば、この問題は起きません。[設定](https://readouble.com/laravel/13.x/ja/configuration.html)
-
-tinker で読めることを確認します。`.env` と config の変更は開いたままの tinker に反映されないので、`exit` で終了してから開き直してください。
-
-```sh
-./vendor/bin/sail artisan tinker
-```
-
-```php
-config('estat.app_id');
-```
-
-```
-= "（共有されたキーが表示される）"
-```
+    `.env` の値は config だけが読み、アプリのコード（コントローラや、この後作るサービスクラス）は `config()` で読みます。この形にしておけば、本番で `env()` が値を返さなくなる問題は起きません。[設定](https://readouble.com/laravel/13.x/ja/configuration.html)
 
 !!! success "確認"
 
-    共有されたキーがそのまま表示されれば成功です。
+    一覧をリロードして、表示が変わらず動けば成功です。キーも URL も統計表 ID も、`.env` と config に移りました。
 
-!!! warning "つまずきポイント：null が返る"
+!!! warning "つまずきポイント：全国平均が出なくなった"
 
-    - tinker を開き直したか確認してください。開いたままの tinker は、変更前の値を持っています。
     - `.env` の行が `ESTAT_APP_ID=キー` の形になっているか（スペースや引用符が入っていないか）確認してください。
-    - それでも直らないときは、`./vendor/bin/sail artisan config:clear` を実行してから、もう一度 tinker を開いてください。
+    - `config/estat.php` のキー名（`app_id` / `endpoint` / `stats_data_id`）と、コントローラで読んでいる名前がそろっているか確認してください。
+    - それでも直らないときは、`./vendor/bin/sail artisan config:clear` を実行してからリロードしてください。
 
-## ④ サービスクラスを作って、コントローラで受け取る
+## ⑤ 通信をサービスクラスに移して、引数で受け取る
 
-②の呼び出しを、アプリに組み込みます。置き場所はコントローラではありません。外部のサービスとの通信は、コントローラに直接書かず、通信だけを受け持つクラスに分けて置くのが定石です。コントローラの仕事はリクエストを受けて結果をビューに渡すことで、どの URL をどんなパラメータで呼ぶかは、別の関心事だからです。この形のクラスを**サービスクラス**と呼びます。
+`index()` が長くなりました。一覧の取得、集計、外部との通信、ビューへの受け渡しが、1つのメソッドに入っています。このうち外部のサービスとの通信は、コントローラに直接書かず、通信だけを受け持つクラスに分けて置くのが定石です。コントローラの仕事はリクエストを受けて結果をビューに渡すことで、どの URL をどんなパラメータで呼ぶかは、別の関心事だからです。この形のクラスを**サービスクラス**と呼びます。
 
 これまでのクラスと違って、`make:controller` や `make:request` のような生成コマンドはありません。サービスクラスは Laravel の部品ではなく、ただの PHP クラスです。置き場所は `app/Services/` にするのが慣例で、フォルダから自分で作ります。
 
@@ -535,12 +889,11 @@ class StatisticsService
 }
 ```
 
-中身は②で tinker に打った呼び出しと同じで、違いは次の4つです。
+中身は④までコントローラにあった呼び出しを移したもので、次の3つを足しました。
 
-- キーと URL と統計表 ID は、③で作った config から読んでいます。
-- `timeout(5)` を足しました。相手が応答しないとき、5秒で打ち切る指定です。
-- 戻り値の型を `?int` と宣言しました。「int または null」という意味です。応答に金額が無いとき（キーの間違い、API 側の障害など）、`json('...')` は null を返すので、それをそのまま null として返します。
-- 金額は文字列で返ってくるので、`(int)` で整数にしています。
+- `timeout(5)`：相手が応答しないとき、5秒で打ち切る指定です。
+- 戻り値の型 `?int`：「int または null」という意味です。応答に金額が無いとき（キーの間違い、API 側の障害など）、`json('...')` は null を返すので、それをそのまま null として返します。
+- `(int)`：金額は文字列で返ってくるので、整数にして返します。
 
 作ったクラスを tinker で動かします。tinker が新しいクラスを短い名前で見つけられるように、先に `dump-autoload` を実行してから開きます。
 
@@ -565,7 +918,7 @@ $statisticsService->nationalAverageUtilityCost();
 
 `new` で作って、そのまま呼び出せました。次に、コントローラから使います。
 
-`TransactionController.php` を書き換えます。`use` を1行足し、`index()` の引数と、ビューに渡す配列に1行を足します。
+`TransactionController.php` を書き換えます。`use` に `StatisticsService` の1行を足し、`index()` の中の通信を消して、引数で受け取ります。もう使わなくなる `use Illuminate\Support\Facades\Http;` は消します。
 
 === "書き換える部分"
 
@@ -693,76 +1046,14 @@ $statisticsService->nationalAverageUtilityCost();
     }
     ```
 
-一覧に全国平均を足します。`index.blade.php` の「今月の光熱費」の段落を書き換えます。
-
-=== "書き換える部分"
-
-    ```blade
-    <h2>今月の光熱費</h2>
-    <p>
-        合計 ¥{{ number_format($thisMonthUtilityTotal) }}
-        @if ($nationalAverageUtilityCost !== null)
-            ／ 全国平均 ¥{{ number_format($nationalAverageUtilityCost) }}
-        @endif
-    </p>
-    ```
-
-=== "index.blade.php 全文"
-
-    ```blade
-    <x-layout>
-        <h2>今月の光熱費</h2>
-        <p>
-            合計 ¥{{ number_format($thisMonthUtilityTotal) }}
-            @if ($nationalAverageUtilityCost !== null)
-                ／ 全国平均 ¥{{ number_format($nationalAverageUtilityCost) }}
-            @endif
-        </p>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>日付</th>
-                    <th>カテゴリ</th>
-                    <th>区分</th>
-                    <th class="amount">金額</th>
-                    <th>メモ</th>
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach ($transactions as $transaction)
-                    <tr>
-                        <td>{{ $transaction->occurred_at }}</td>
-                        <td>{{ $transaction->category->name }}</td>
-                        <td>{{ $transaction->type === 'income' ? '収入' : '支出' }}</td>
-                        <td class="amount">¥{{ number_format($transaction->amount) }}</td>
-                        <td>{{ $transaction->note }}</td>
-                        <td>
-                            <a href="{{ route('transactions.edit', $transaction) }}">編集</a>
-                            <form method="POST" action="{{ route('transactions.destroy', $transaction) }}">
-                                @csrf
-                                @method('DELETE')
-                                <button type="submit" onclick="return confirm('本当に削除しますか？')">削除</button>
-                            </form>
-                        </td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-    </x-layout>
-    ```
-
-`@if` は、平均が取得できなかったとき（null のとき）に、その部分だけ表示しない分岐です。
-
 !!! success "確認"
 
-    一覧の上に「合計 ¥…… ／ 全国平均 ¥……」と並べば成功です。
+    **見た目が何も変わらないことが成功です。** 表示は④までと同じで、違いはコードの側にあります。外部との通信が StatisticsService の1箇所にまとまり、`index()` は集計と受け渡しに戻りました。
 
-!!! warning "つまずきポイント：全国平均が出ない"
+!!! warning "つまずきポイント：エラーになる・平均が出ない"
 
-    - 合計だけが表示される：平均が null になっています。tinker で③の `config('estat.app_id')` と④の `nationalAverageUtilityCost()` をもう一度実行して、どちらで null になるかを切り分けてください。②のつまずきポイント（`RESULT` の見方）も使えます。
     - `Class "App\Services\StatisticsService" does not exist`：コントローラの `use App\Services\StatisticsService;` の書き忘れか、ファイルの置き場所・`namespace App\Services;` の書き間違いです。
+    - 合計だけが表示される：平均が null です。tinker で `(new StatisticsService())->nationalAverageUtilityCost()` を実行して、②のつまずきポイント（`RESULT` の見方）で理由を確かめてください。
 
 ### 引数は Laravel が用意している
 
@@ -799,7 +1090,7 @@ app(StatisticsService::class);
 
     自作のクラスも、型を書けば Laravel が作って渡してくれます。サービスクラスが増えても、コントローラに `new` を並べる必要はありません。
 
-## ⑤ 全国平均との差を表示する
+## ⑥ 全国平均との差を表示する
 
 最後の1行は、自分で書いてみてください。
 
