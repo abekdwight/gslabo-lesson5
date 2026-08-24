@@ -44,5 +44,8 @@ markdown_extensions:
 extra_css:
   - stylesheets/extra.css
 
+extra_javascript:
+  - javascripts/estat-key.js
+
 nav:
   - "Laravel 3 — 家計簿を全国平均と比べる": index.md

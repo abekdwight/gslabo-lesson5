@@ -12,6 +12,16 @@
 
 自分の合計は家計簿のデータベースから集計し、全国平均は政府統計（e-Stat）の API から取得します。家計簿が、外部のサービスと通信するアプリになります。
 
+手を入れるファイルは次の5つです。
+
+| ファイル                                          | 今日やること                                            |
+| ------------------------------------------------- | ------------------------------------------------------- |
+| `.env`                                            | `ESTAT_APP_ID` を1行追加する                            |
+| `config/estat.php`                                | 新規作成。API の設定をまとめる                          |
+| `app/Services/StatisticsService.php`              | 新規作成。e-Stat から全国平均を取得する                 |
+| `app/Http/Controllers/TransactionController.php`  | `index()` で合計を集計し、サービスクラスを受け取る      |
+| `resources/views/transactions/index.blade.php`    | 比較の表示を足す                                        |
+
 ## 今日学ぶこと
 
 | 言葉                                     | ざっくり言うと                                                       | 登場する場面 |
@@ -66,18 +76,6 @@ cd kakeibo
 !!! warning "つまずきポイント：起動できない"
 
     `port is already allocated` / `Address already in use`：ほかのプロジェクトの Sail が動いたままです。そのプロジェクトのフォルダで `./vendor/bin/sail down` してから、もう一度 `sail up -d` を実行してください。
-
-## 進め方
-
-5つのステップで進めます。
-
-1. 今月の光熱費を合計する
-2. 統計 API を呼び出してみる
-3. API キーを .env と config に置く
-4. サービスクラスを作って、コントローラで受け取る
-5. 全国平均との差を表示する
-
-①で自分の合計、②〜④で全国平均、⑤で差を出します。
 
 ## ① 今月の光熱費を合計する
 
@@ -314,7 +312,13 @@ Transaction::whereIn('category_id', $utilityCategoryIds)
 
 比べる相手の全国平均は、政府統計の総合窓口（e-Stat）の API から取得します。家計調査という統計に、二人以上の世帯が1ヶ月に払う「光熱・水道」の平均額があります。
 
-API は、プログラムから呼び出すための URL です。開くと、HTML の画面ではなくデータ（JSON）が返ります。まずブラウザで開いてみます。次の URL の `（共有されたキー）` を、共有された appId に置き換えて開いてください。
+API は、プログラムから呼び出すための URL です。開くと、HTML の画面ではなくデータ（JSON）が返ります。
+
+共有された appId を、次の欄に貼り付けてください。このページのコードの `（共有されたキー）` の部分が、貼り付けた値に置き換わります（値はこのブラウザにだけ保存されます）。
+
+<p><input type="text" id="estat-app-id" placeholder="共有された appId を貼り付け" style="width: 100%; max-width: 480px; font-family: monospace; padding: 4px 8px;"></p>
+
+まずブラウザで開いてみます。次の URL を開いてください。
 
 ```
 https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData?appId=（共有されたキー）&statsDataId=0002070008&cdTab=01&cdCat01=107&cdCat02=03&cdCat03=00&cdArea=00000&cdTime=2026000606
@@ -384,6 +388,8 @@ $response = Http::get('https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData',
 ```
 
 `Http::get(URL, [...])` は、第2引数の配列を `?appId=...&statsDataId=...` の形に組み立てて送ります。ブラウザで開いたのと同じ URL です。[HTTPクライアント](https://readouble.com/laravel/13.x/ja/http-client.html)
+
+`Http` は、PHP で広く使われてきた HTTP クライアントの Guzzle を、Laravel が使いやすく包んだものです。少し前までは、Guzzle をそのまま使う書き方が一般的でした。どちらも、JavaScript でいう axios にあたる立ち位置のライブラリです。[Guzzle](https://docs.guzzlephp.org/en/stable/)
 
 返ってきた JSON を、PHP の配列として取り出します。
 
