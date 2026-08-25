@@ -127,10 +127,6 @@ Transaction::whereIn('category_id', $utilityCategoryIds)->whereBetween('occurred
 - `sum('amount')` は、条件に合った行の `amount` を合計します。
 - メソッドをつなぐたびに問い合わせの条件が組み上がり、`sum()` などを呼んだ時点で SQL が実行されます。計算するのはデータベースで、PHP 側にループは書きません。[クエリビルダ](https://readouble.com/laravel/13.x/ja/queries.html)
 
-!!! warning "つまずきポイント：tinker で PARSE ERROR が出る"
-
-    tinker は1行ずつ実行します。メソッドをつないだ命令を途中で改行して貼ると、2行目以降だけが実行されて `PHP Parse error: Syntax error, unexpected T_OBJECT_OPERATOR` になります。つないだ命令は1行のまま貼ってください。行末で閉じていない `(` や `[` があるときは、閉じるまで次の行に続けて書けます。
-
 これをコントローラに置きます。`app/Http/Controllers/TransactionController.php` の `index()` を書き換えます。
 
 === "書き換える部分"
