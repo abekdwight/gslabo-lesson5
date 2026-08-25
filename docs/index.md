@@ -1722,3 +1722,114 @@ Note: Using configuration file /var/www/html/phpstan.neon.
 ### 前回の続き
 
 前回の資料の「時間が余ったら」（日付の `$casts`・アクセサ・ページ送りなど）も、この家計簿にそのまま足せます。
+
+## おまけ
+
+授業のあとに読んでください。今日の内容の先で使う設定や、実務でよく使うライブラリ、書き方の決めごとをまとめます。
+
+### エディタの拡張機能（VS Code 系）
+
+VS Code・Cursor・Windsurf を使う場合に、入れておくと便利な拡張機能です。
+
+- [Laravel Extra Intellisense](https://github.com/amir9480/vscode-laravel-extra-intellisense)：ルート名・ビュー名・設定キーなど、いろいろな補完が出ます。
+- [Laravel goto view](https://github.com/codingyu/laravel-goto-view)：`view()` ヘルパーの引数から Blade ファイルへジャンプできます。
+- [Laravel VS Code Extension](https://github.com/laravel/vs-code-extension)：Laravel 公式。Laravel 専用の LSP を提供します。
+- [Laravel Blade Snippets](https://github.com/onecentlin/laravel-blade-snippets-vscode)：Emmet のような書き味で Blade のディレクティブを書けます。
+- [Laravel jump controller](https://github.com/377960738/laravel-jump-controller)：ルートの定義からコントローラへ直接ジャンプできます。
+- [PHPStan](https://github.com/swordev/phpstan-vscode)：PHPStan の実行とエラー表示。Larastan を使うなら必要です。
+
+### よく使うライブラリ
+
+- [laravel-enum](https://github.com/BenSampo/laravel-enum)：enum 管理のデファクトスタンダードです。PHP 8 系で言語自体が enum をサポートしましたが仕様に足りない部分があり、今後もこちらが使われ続ける可能性が高いです。PHP ネイティブの enum をラップしたライブラリも出てきているので、導入するときは調べてみてください。GitHub のスター数を見ると当たりを付けやすくなります（数字を過信はできません）。
+- [laravel-ide-helper](https://github.com/barryvdh/laravel-ide-helper)：モデルのプロパティなどの型情報を書き出します。PHPStan を使うなら特に必要です。前回紹介した laravel-debugbar と同じ作者です。
+- [league/csv](https://github.com/thephpleague/csv)：CSV を扱うときの定番です。
+- [laravel-query-detector](https://github.com/beyondcode/laravel-query-detector)：N+1 クエリを検出します。
+- [phpinsights](https://github.com/nunomaduro/phpinsights)：コードの品質を計測して高いレベルに保ちます。
+- [rector](https://github.com/rectorphp/rector)：コードの書き換えを自動で行うリファクタリングのツールです。
+- [deptrac](https://github.com/deptrac/deptrac)：レイヤー間の依存の向きを定義して、違反を検出します。
+
+PHP と Laravel で高品質なライブラリを継続して出している団体が、次の2つです。パッケージを探すときは、ここから見ると外れが少なくなります。
+
+- [The PHP League](https://github.com/thephpleague)
+- [Spatie](https://github.com/spatie)
+
+参考：[The PHP League について](https://qiita.com/yamachan_paopao/items/3d0bcc7a94007b7265e6)
+
+### 書き方の決めごと
+
+`declare(strict_types=1);` は、基本的に必ず書きます。
+
+FormRequest では、バリデーションだけでなく型変換（キャスト）まで行うと、そのあとのコードが型安全になります。FormRequest 自身に、型の付いた値を返すメソッドを足す形です。
+
+```php
+final class CreateUserRequest extends FormRequest
+{
+    public function rules(): array
+    {
+        return [
+            'name'   => ['required', 'string'],
+            'age'    => ['required', 'integer'],
+            'active' => ['required', 'boolean'],
+        ];
+    }
+
+    /**
+     * @return array{
+     *     name: string,
+     *     age: int,
+     *     active: bool
+     * }
+     */
+    public function typed(): array
+    {
+        $data = $this->safe();
+
+        return [
+            'name'   => (string) $data->string('name'),
+            'age'    => $data->integer('age'),
+            'active' => $data->boolean('active'),
+        ];
+    }
+}
+```
+
+コントローラは、型の付いた値を受け取るところから始められます。
+
+```php
+public function store(CreateUserRequest $request)
+{
+    $input = $request->typed();
+
+    $input['name'];   // string
+    $input['age'];    // int
+    $input['active']; // bool
+}
+```
+
+FormRequest は、HTTP の入力をアプリケーションで扱える状態にする境界です。検証を通したあとの型変換までを FormRequest が受け持つのは、その役割から外れていません。Laravel 自身が `safe()->integer()`・`boolean()`・`enum()` を用意しているので、素直に書けます。
+
+避けたいのは、コントローラごとに次を毎回書くことです。
+
+```php
+$data = $request->validated();
+$age = (int) $data['age'];
+$active = (bool) $data['active'];
+```
+
+変換と型の定義を FormRequest の1つのメソッドにまとめると、重複が消えて、PHPStan の解析にも効きます。メソッド名は `typed()` のほかに、`validatedInput()`・`typedInput()` なども分かりやすいです。
+
+さらに発展的な方法として、[laravel-data](https://github.com/spatie/laravel-data) で DTO を実装し、FormRequest から使う形があります。具体的な書き方は、AI に聞けば例が出てきます。
+
+### レイヤーの分け方
+
+好みや文化にもよりますが、サービスクラスは外部接続の汎用的な入り口として使い、内部のドメインロジックは Action クラスとして実装する方針です。サービスクラスだけのレイヤーを作ると、そこに複雑さが集中していきます。次の分け方が、なんだかんだ安定します。
+
+| 層                  | 受け持つこと                                                       |
+| ------------------- | ------------------------------------------------------------------ |
+| FormRequest / Rules | バリデーションとキャスト。入力の前提を作る                         |
+| Controller          | 入力の受け取りと、Action の呼び出しと、レスポンスだけに集中する    |
+| Action              | ドメイン固有の複雑な処理を全て引き受ける。モデルの呼び出しも行う   |
+| Service・Helper     | 外部連携や共通処理を引き受ける                                     |
+| Model               | クエリの実行と、モデル固有の処理                                   |
+
+Controller からは、`index`・`show`・`update` ごとに個別の Action を呼びます。この依存の向きを deptrac で縛っておくと、事故が起きにくくなります。
