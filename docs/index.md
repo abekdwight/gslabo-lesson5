@@ -1285,6 +1285,205 @@ API につながらない環境で画面側の作業を進めたいときに、�
 
 全国平均は統計の集計月、自分の合計は今月なので、月がずれた比較です。それでも「自分の光熱費は平均とどのくらい違うか」の目安には十分です。
 
+## ⑦ 郵便番号から住所を自動で入れる
+
+外部の API を使う場面をもう1つ作ります。郵便番号を入れると住所が自動で入る、通販サイトの会員登録などで見る形の入力欄です。API を呼ぶ処理をサービスクラスに置き、コントローラは引数で受け取る、⑤と同じ形で作ります。
+
+住所の検索には、郵便番号検索 API の zipcloud を使います。キーは要りません。まずブラウザで次の URL を開いてみます。[zipcloud](https://zipcloud.ibsnet.co.jp/doc/api)
+
+```
+https://zipcloud.ibsnet.co.jp/api/search?zipcode=1000001
+```
+
+```json
+{
+    "message": null,
+    "results": [
+        {
+            "address1": "東京都",
+            "address2": "千代田区",
+            "address3": "千代田",
+            "kana1": "ﾄｳｷｮｳﾄ",
+            "kana2": "ﾁﾖﾀﾞｸ",
+            "kana3": "ﾁﾖﾀﾞ",
+            "prefcode": "13",
+            "zipcode": "1000001"
+        }
+    ],
+    "status": 200
+}
+```
+
+住所は `results` の1件目に、都道府県（address1）・市区町村（address2）・町域（address3）に分かれて入っています。見つからない郵便番号のときは、`results` が null になります。
+
+画面から作ります。`resources/views/address/index.blade.php` を新規作成します。
+
+```blade
+<x-layout>
+    <h2>住所の入力</h2>
+
+    <p>
+        <label>郵便番号
+            <input type="text" id="zipcode" placeholder="1000001">
+        </label>
+    </p>
+
+    <p>
+        <label>住所
+            <input type="text" id="address" size="40">
+        </label>
+    </p>
+
+    <script>
+        document.getElementById('zipcode').addEventListener('input', async (event) => {
+            const zipcode = event.target.value.replace('-', '');
+            if (zipcode.length !== 7) {
+                return;
+            }
+
+            const response = await fetch(`/address/search/${zipcode}`);
+            const result = await response.json();
+            if (result.address !== null) {
+                document.getElementById('address').value = result.address;
+            }
+        });
+    </script>
+</x-layout>
+```
+
+`<script>` の中身は、郵便番号の欄が7桁になったら `/address/search/郵便番号` を呼び、返ってきた JSON の住所を住所の欄に入れる JavaScript です。`fetch()` は、JavaScript から HTTP リクエストを送る関数です。
+
+ルートを足します。`routes/web.php` の `use` の並びに1行、ファイルの末尾に2行を追加します。
+
+```php
+use App\Http\Controllers\AddressController;
+```
+
+```php
+Route::get('/address', [AddressController::class, 'index']);
+Route::get('/address/search/{zipcode}', [AddressController::class, 'search']);
+```
+
+コントローラを作ります。`app/Http/Controllers/AddressController.php` を新規作成します。
+
+```php
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Services\PostalCodeService;
+
+class AddressController extends Controller
+{
+    /**
+     * 住所の入力フォームを表示する。
+     */
+    public function index()
+    {
+        return view('address.index');
+    }
+
+    /**
+     * 郵便番号から住所を検索して、JSON で返す。
+     */
+    public function search(PostalCodeService $postalCodeService, string $zipcode)
+    {
+        return [
+            'address' => $postalCodeService->addressByZipCode($zipcode),
+        ];
+    }
+}
+```
+
+- `search()` は、ビューではなく配列を返しています。コントローラが配列を返すと、Laravel は JSON にして返します。ビューの `fetch()` が受け取るのは、この JSON です。
+- 引数が2つ並ぶときは、Laravel に用意してもらうもの（サービスクラス）を前に、URL の `{zipcode}` に対応するものを後に書きます。
+
+!!! success "確認"
+
+    `http://localhost/address` を開いて、郵便番号と住所の欄が表示されれば準備完了です。郵便番号を入れても、住所はまだ入りません。`search()` が受け取る PostalCodeService を、まだ作っていないからです。
+
+!!! question "やってみましょう：PostalCodeService を作る"
+
+    `app/Services/PostalCodeService.php` を新規作成します。⑤の StatisticsService と同じ形です。（　）の3箇所を埋めてください。
+
+    ```php
+    <?php
+
+    namespace App\Services;
+
+    use Illuminate\Support\Facades\Http;
+
+    class PostalCodeService
+    {
+        /**
+         * 郵便番号から住所（都道府県・市区町村・町域をつないだ文字列）を返す。
+         * 住所を取れなかったときは null。
+         */
+        public function addressByZipCode(string $zipcode): ?string
+        {
+            $response = Http::timeout(5)->get('https://zipcloud.ibsnet.co.jp/api/search', [
+                'zipcode' => （　）,
+            ]);
+
+            $prefecture = $response->json('（　）');
+            $city = $response->json('results.0.address2');
+            $town = $response->json('results.0.address3');
+
+            if (（　）) {
+                return null;
+            }
+
+            return $prefecture . $city . $town;
+        }
+    }
+    ```
+
+    確認：`http://localhost/address` の郵便番号に `1000001` と入れて、住所の欄に「東京都千代田区千代田」と入れば成功です。自分の家の郵便番号でも試してみてください。
+
+??? note "答え"
+
+    ```php
+    <?php
+
+    namespace App\Services;
+
+    use Illuminate\Support\Facades\Http;
+
+    class PostalCodeService
+    {
+        /**
+         * 郵便番号から住所（都道府県・市区町村・町域をつないだ文字列）を返す。
+         * 住所を取れなかったときは null。
+         */
+        public function addressByZipCode(string $zipcode): ?string
+        {
+            $response = Http::timeout(5)->get('https://zipcloud.ibsnet.co.jp/api/search', [
+                'zipcode' => $zipcode,
+            ]);
+
+            $prefecture = $response->json('results.0.address1');
+            $city = $response->json('results.0.address2');
+            $town = $response->json('results.0.address3');
+
+            if ($prefecture === null) {
+                return null;
+            }
+
+            return $prefecture . $city . $town;
+        }
+    }
+    ```
+
+    - 1つ目は `$zipcode` です。引数で受け取った郵便番号を、クエリパラメータとして渡します。
+    - 2つ目は `results.0.address1` です。応答の `results` の1件目（0番目）の `address1` を指します。
+    - 3つ目は `$prefecture === null` です。見つからない郵便番号のときは `results` が null なので、その中を指すパスも null になります。
+
+!!! warning "つまずきポイント：住所が入らない"
+
+    - まず、ブラウザで `http://localhost/address/search/1000001` を直接開いてみてください。address に住所の文字列が入っていれば（日本語は `\u6771` のような表記で表示されます。JSON の仕様で、正常です）、サービスクラスは動いています。入らないのはビューの貼り間違いです。
+    - `Class "App\Services\PostalCodeService" does not exist` が出る：ファイルの置き場所（`app/Services/`）か、`namespace App\Services;`・クラス名の書き間違いです。
+    - `{"address":null}` が出る：（　）の埋め方、特に json のパスをもう一度確認してください。
+
 ## まとめ
 
 - 集計はクエリメソッド（`whereIn`・`whereBetween`・`sum`）で組み立てて、データベースに計算させる。
