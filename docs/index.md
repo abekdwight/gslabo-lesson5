@@ -1272,7 +1272,7 @@ https://zipcloud.ibsnet.co.jp/api/search?zipcode=1000001
                 return;
             }
 
-            const response = await fetch(`/address/search/${zipcode}`);
+            const response = await fetch(`/v1/zip?code=${zipcode}`);
             const result = await response.json();
             if (result.address !== null) {
                 document.getElementById('address').value = result.address;
@@ -1282,9 +1282,9 @@ https://zipcloud.ibsnet.co.jp/api/search?zipcode=1000001
 </x-layout>
 ```
 
-`<script>` の中身は、郵便番号の欄が7桁になったら `/address/search/郵便番号` を呼び、返ってきた JSON の住所を住所の欄に入れる JavaScript です。`fetch()` は、JavaScript から HTTP リクエストを送る関数です。
+`<script>` の中身は、郵便番号の欄が7桁になったら `/v1/zip?code=郵便番号` を呼び、返ってきた JSON の住所を住所の欄に入れる JavaScript です。`fetch()` は、JavaScript から HTTP リクエストを送る関数です。
 
-ルートを足します。`routes/web.php` の `use` の並びに1行、ファイルの末尾に2行を追加します。
+ルートを足します。`routes/web.php` の `use` の並びに1行と、ファイルの末尾に次を追加します。
 
 ```php
 use App\Http\Controllers\AddressController;
@@ -1292,7 +1292,10 @@ use App\Http\Controllers\AddressController;
 
 ```php
 Route::get('/address', [AddressController::class, 'index']);
-Route::get('/address/search/{zipcode}', [AddressController::class, 'search']);
+
+Route::prefix('v1')->group(function () {
+    Route::get('/zip', [AddressController::class, 'search']);
+});
 ```
 
 コントローラを作ります。`app/Http/Controllers/AddressController.php` を新規作成します。
@@ -1303,6 +1306,7 @@ Route::get('/address/search/{zipcode}', [AddressController::class, 'search']);
 namespace App\Http\Controllers;
 
 use App\Services\PostalCodeService;
+use Illuminate\Http\Request;
 
 class AddressController extends Controller
 {
@@ -1317,17 +1321,18 @@ class AddressController extends Controller
     /**
      * 郵便番号から住所を検索して、JSON で返す。
      */
-    public function search(PostalCodeService $postalCodeService, string $zipcode)
+    public function search(Request $request, PostalCodeService $postalCodeService)
     {
         return [
-            'address' => $postalCodeService->addressByZipCode($zipcode),
+            'address' => $postalCodeService->addressByZipCode($request->query('code')),
         ];
     }
 }
 ```
 
 - `search()` は、ビューではなく配列を返しています。コントローラが配列を返すと、Laravel は JSON にして返します。ビューの `fetch()` が受け取るのは、この JSON です。
-- 引数が2つ並ぶときは、Laravel に用意してもらうもの（サービスクラス）を前に、URL の `{zipcode}` に対応するものを後に書きます。
+- `$request->query('code')` は、URL の `?code=...` の値を読みます。zipcloud に `?zipcode=...` を付けて呼んだのと同じ渡し方を、今度は受け取る側で使っています。
+- データを返す URL は、画面の URL と分けて、`v1` のグループの下に置きます。`prefix('v1')` で、グループの中のルートの URL の頭に `/v1` が付きます。`v1` はバージョン番号で、API の URL によく使われる形です。グループの書き方は、このファイルの上にある `Route::middleware([...])->group(...)` と同じです。[ルートグループ](https://readouble.com/laravel/13.x/ja/routing.html#route-groups)
 
 !!! success "確認"
 
@@ -1411,7 +1416,7 @@ class AddressController extends Controller
 
 !!! warning "つまずきポイント：住所が入らない"
 
-    - まず、ブラウザで `http://localhost/address/search/1000001` を直接開いてみてください。address に住所の文字列が入っていれば（日本語は `\u6771` のような表記で表示されます。JSON の仕様で、正常です）、サービスクラスは動いています。入らないのはビューの貼り間違いです。
+    - まず、ブラウザで `http://localhost/v1/zip?code=1000001` を直接開いてみてください。address に住所の文字列が入っていれば（日本語は `\u6771` のような表記で表示されます。JSON の仕様で、正常です）、サービスクラスは動いています。入らないのはビューの貼り間違いです。
     - `Class "App\Services\PostalCodeService" does not exist` が出る：ファイルの置き場所（`app/Services/`）か、`namespace App\Services;`・クラス名の書き間違いです。
     - `{"address":null}` が出る：（　）の埋め方、特に json のパスをもう一度確認してください。
 
