@@ -7,7 +7,7 @@
 ゴールは、一覧の上に「今月の光熱費」と「全国平均」を並べて表示することです。
 
 ```
-今月の光熱費　合計 ¥12,280 ／ 全国平均 ¥19,837 ／ 差 ¥-7,557
+今月の光熱費　合計 ¥12,280 ／ 全国平均 ¥19,837
 ```
 
 自分の合計は家計簿のデータベースから集計し、全国平均は政府統計（e-Stat）の API から取得します。家計簿が、外部のサービスと通信するアプリになります。
@@ -657,6 +657,8 @@ tinker で取れた値を、画面に出します。tinker に打った呼び出
     - コントローラに貼ったコードの `appId` が `（共有されたキー）` の文字のまま残っていないか確認してください。
     - ②の tinker では取れていたかを思い出してください。取れていなかった場合は、②のつまずきポイント（`RESULT` の見方）で理由を確認できます。
 
+全国平均は統計の集計月、自分の合計は今月なので、月がずれた比較です。それでも「自分の光熱費は平均とどのくらい違うか」の目安には十分です。
+
 ## ④ キーを .env と config に移す
 
 動きましたが、コントローラにキーがそのまま書いてあります。このファイルをコミットすると、キーごと Git に入って公開されてしまいます。キーのような秘密の値は、コードではなく `.env` に置きます。
@@ -1214,78 +1216,7 @@ API につながらない環境で画面側の作業を進めたいときに、�
 
     自作のクラスも、型を書けば Laravel が作って渡してくれます。引数の型宣言が「このメソッドは何を使うか」の宣言になり、用意する仕事はサービスコンテナが受け持ちます。
 
-## ⑥ 全国平均との差を表示する
-
-最後の1行は、自分で書いてみてください。
-
-!!! question "やってみましょう：差を表示する"
-
-    `index.blade.php` の全国平均の行の下（`@if` の中）に、次の1行を足します。（　）の2箇所を埋めてください。自分の合計が平均より少なければ、マイナスの金額になる引き算です。
-
-    ```blade
-    ／ 差 ¥{{ number_format(（　） - （　）) }}
-    ```
-
-    確認：一覧の上に「合計 ¥12,280 ／ 全国平均 ¥19,837 ／ 差 ¥-7,557」のように3つ並べば成功です。
-
-??? note "答え"
-
-    ```blade
-    ／ 差 ¥{{ number_format($thisMonthUtilityTotal - $nationalAverageUtilityCost) }}
-    ```
-
-    自分の合計から平均を引きます。マイナスなら平均より少なく、プラスなら平均より多く使っています。
-
-    === "index.blade.php 全文"
-
-        ```blade
-        <x-layout>
-            <h2>今月の光熱費</h2>
-            <p>
-                合計 ¥{{ number_format($thisMonthUtilityTotal) }}
-                @if ($nationalAverageUtilityCost !== null)
-                    ／ 全国平均 ¥{{ number_format($nationalAverageUtilityCost) }}
-                    ／ 差 ¥{{ number_format($thisMonthUtilityTotal - $nationalAverageUtilityCost) }}
-                @endif
-            </p>
-
-            <table>
-                <thead>
-                    <tr>
-                        <th>日付</th>
-                        <th>カテゴリ</th>
-                        <th>区分</th>
-                        <th class="amount">金額</th>
-                        <th>メモ</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach ($transactions as $transaction)
-                        <tr>
-                            <td>{{ $transaction->occurred_at }}</td>
-                            <td>{{ $transaction->category->name }}</td>
-                            <td>{{ $transaction->type === 'income' ? '収入' : '支出' }}</td>
-                            <td class="amount">¥{{ number_format($transaction->amount) }}</td>
-                            <td>{{ $transaction->note }}</td>
-                            <td>
-                                <a href="{{ route('transactions.edit', $transaction) }}">編集</a>
-                                <form method="POST" action="{{ route('transactions.destroy', $transaction) }}">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button type="submit" onclick="return confirm('本当に削除しますか？')">削除</button>
-                                </form>
-                            </td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </x-layout>
-        ```
-
-全国平均は統計の集計月、自分の合計は今月なので、月がずれた比較です。それでも「自分の光熱費は平均とどのくらい違うか」の目安には十分です。
-
-## ⑦ 郵便番号から住所を自動で入れる
+## ⑥ 郵便番号から住所を自動で入れる
 
 外部の API を使う場面をもう1つ作ります。郵便番号を入れると住所が自動で入る、通販サイトの会員登録などで見る形の入力欄です。API を呼ぶ処理をサービスクラスに置き、コントローラは引数で受け取る、⑤と同じ形で作ります。
 
