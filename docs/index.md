@@ -127,7 +127,57 @@ Transaction::whereIn('category_id', $utilityCategoryIds)->whereBetween('occurred
 - `sum('amount')` は、条件に合った行の `amount` を合計します。
 - メソッドをつなぐたびに問い合わせの条件が組み上がり、`sum()` などを呼んだ時点で SQL が実行されます。計算するのはデータベースで、PHP 側にループは書きません。[クエリビルダ](https://readouble.com/laravel/13.x/ja/queries.html)
 
-これをコントローラに置きます。`app/Http/Controllers/TransactionController.php` の `index()` を書き換えます。
+合計を一覧の上に表示します。`resources/views/transactions/index.blade.php` の `<table>` の上に追加します。
+
+=== "追加する部分"
+
+    ```blade
+    <h2>今月の光熱費</h2>
+    <p>合計 ¥{{ number_format($thisMonthUtilityTotal) }}</p>
+    ```
+
+=== "index.blade.php 全文"
+
+    ```blade
+    <x-layout>
+        <h2>今月の光熱費</h2>
+        <p>合計 ¥{{ number_format($thisMonthUtilityTotal) }}</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>日付</th>
+                    <th>カテゴリ</th>
+                    <th>区分</th>
+                    <th class="amount">金額</th>
+                    <th>メモ</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($transactions as $transaction)
+                    <tr>
+                        <td>{{ $transaction->occurred_at }}</td>
+                        <td>{{ $transaction->category->name }}</td>
+                        <td>{{ $transaction->type === 'income' ? '収入' : '支出' }}</td>
+                        <td class="amount">¥{{ number_format($transaction->amount) }}</td>
+                        <td>{{ $transaction->note }}</td>
+                        <td>
+                            <a href="{{ route('transactions.edit', $transaction) }}">編集</a>
+                            <form method="POST" action="{{ route('transactions.destroy', $transaction) }}">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" onclick="return confirm('本当に削除しますか？')">削除</button>
+                            </form>
+                        </td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </x-layout>
+    ```
+
+ビューが使う `$thisMonthUtilityTotal` を、コントローラで用意します。tinker で組み立てた集計を、そのまま `index()` に書きます。`app/Http/Controllers/TransactionController.php` を書き換えます。
 
 === "書き換える部分"
 
@@ -246,56 +296,6 @@ Transaction::whereIn('category_id', $utilityCategoryIds)->whereBetween('occurred
             return redirect('/transactions')->with('message', '削除しました');
         }
     }
-    ```
-
-一覧の上に表示します。`resources/views/transactions/index.blade.php` の `<table>` の上に追加します。
-
-=== "追加する部分"
-
-    ```blade
-    <h2>今月の光熱費</h2>
-    <p>合計 ¥{{ number_format($thisMonthUtilityTotal) }}</p>
-    ```
-
-=== "index.blade.php 全文"
-
-    ```blade
-    <x-layout>
-        <h2>今月の光熱費</h2>
-        <p>合計 ¥{{ number_format($thisMonthUtilityTotal) }}</p>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>日付</th>
-                    <th>カテゴリ</th>
-                    <th>区分</th>
-                    <th class="amount">金額</th>
-                    <th>メモ</th>
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach ($transactions as $transaction)
-                    <tr>
-                        <td>{{ $transaction->occurred_at }}</td>
-                        <td>{{ $transaction->category->name }}</td>
-                        <td>{{ $transaction->type === 'income' ? '収入' : '支出' }}</td>
-                        <td class="amount">¥{{ number_format($transaction->amount) }}</td>
-                        <td>{{ $transaction->note }}</td>
-                        <td>
-                            <a href="{{ route('transactions.edit', $transaction) }}">編集</a>
-                            <form method="POST" action="{{ route('transactions.destroy', $transaction) }}">
-                                @csrf
-                                @method('DELETE')
-                                <button type="submit" onclick="return confirm('本当に削除しますか？')">削除</button>
-                            </form>
-                        </td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-    </x-layout>
     ```
 
 !!! success "確認"
@@ -432,7 +432,69 @@ $response->json('GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE.$');
 
 ## ③ コントローラに組み込む
 
-tinker で取れた値を、画面に出します。tinker に打った呼び出しを、そのまま `index()` に書きます。`app/Http/Controllers/TransactionController.php` を書き換えます。`use` に `Http` の1行を足し、`index()` に通信と、ビューに渡す1行を足します。
+一覧に全国平均を足します。`resources/views/transactions/index.blade.php` の「今月の光熱費」の段落を書き換えます。
+
+=== "書き換える部分"
+
+    ```blade
+    <h2>今月の光熱費</h2>
+    <p>
+        合計 ¥{{ number_format($thisMonthUtilityTotal) }}
+        @if ($nationalAverageUtilityCost !== null)
+            ／ 全国平均 ¥{{ number_format($nationalAverageUtilityCost) }}
+        @endif
+    </p>
+    ```
+
+=== "index.blade.php 全文"
+
+    ```blade
+    <x-layout>
+        <h2>今月の光熱費</h2>
+        <p>
+            合計 ¥{{ number_format($thisMonthUtilityTotal) }}
+            @if ($nationalAverageUtilityCost !== null)
+                ／ 全国平均 ¥{{ number_format($nationalAverageUtilityCost) }}
+            @endif
+        </p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>日付</th>
+                    <th>カテゴリ</th>
+                    <th>区分</th>
+                    <th class="amount">金額</th>
+                    <th>メモ</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($transactions as $transaction)
+                    <tr>
+                        <td>{{ $transaction->occurred_at }}</td>
+                        <td>{{ $transaction->category->name }}</td>
+                        <td>{{ $transaction->type === 'income' ? '収入' : '支出' }}</td>
+                        <td class="amount">¥{{ number_format($transaction->amount) }}</td>
+                        <td>{{ $transaction->note }}</td>
+                        <td>
+                            <a href="{{ route('transactions.edit', $transaction) }}">編集</a>
+                            <form method="POST" action="{{ route('transactions.destroy', $transaction) }}">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" onclick="return confirm('本当に削除しますか？')">削除</button>
+                            </form>
+                        </td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </x-layout>
+    ```
+
+`@if` は、平均が取得できなかったとき（null のとき）に、その部分だけ表示しない分岐です。
+
+ビューが使う `$nationalAverageUtilityCost` を、コントローラで用意します。tinker に打った呼び出しを、そのまま `index()` に書きます。`app/Http/Controllers/TransactionController.php` を書き換えます。`use` に `Http` の1行を足し、`index()` に通信と、ビューに渡す1行を足します。
 
 === "書き換える部分"
 
@@ -583,68 +645,6 @@ tinker で取れた値を、画面に出します。tinker に打った呼び出
         }
     }
     ```
-
-一覧に全国平均を足します。`resources/views/transactions/index.blade.php` の「今月の光熱費」の段落を書き換えます。
-
-=== "書き換える部分"
-
-    ```blade
-    <h2>今月の光熱費</h2>
-    <p>
-        合計 ¥{{ number_format($thisMonthUtilityTotal) }}
-        @if ($nationalAverageUtilityCost !== null)
-            ／ 全国平均 ¥{{ number_format($nationalAverageUtilityCost) }}
-        @endif
-    </p>
-    ```
-
-=== "index.blade.php 全文"
-
-    ```blade
-    <x-layout>
-        <h2>今月の光熱費</h2>
-        <p>
-            合計 ¥{{ number_format($thisMonthUtilityTotal) }}
-            @if ($nationalAverageUtilityCost !== null)
-                ／ 全国平均 ¥{{ number_format($nationalAverageUtilityCost) }}
-            @endif
-        </p>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>日付</th>
-                    <th>カテゴリ</th>
-                    <th>区分</th>
-                    <th class="amount">金額</th>
-                    <th>メモ</th>
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach ($transactions as $transaction)
-                    <tr>
-                        <td>{{ $transaction->occurred_at }}</td>
-                        <td>{{ $transaction->category->name }}</td>
-                        <td>{{ $transaction->type === 'income' ? '収入' : '支出' }}</td>
-                        <td class="amount">¥{{ number_format($transaction->amount) }}</td>
-                        <td>{{ $transaction->note }}</td>
-                        <td>
-                            <a href="{{ route('transactions.edit', $transaction) }}">編集</a>
-                            <form method="POST" action="{{ route('transactions.destroy', $transaction) }}">
-                                @csrf
-                                @method('DELETE')
-                                <button type="submit" onclick="return confirm('本当に削除しますか？')">削除</button>
-                            </form>
-                        </td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-    </x-layout>
-    ```
-
-`@if` は、平均が取得できなかったとき（null のとき）に、その部分だけ表示しない分岐です。
 
 !!! success "確認"
 
