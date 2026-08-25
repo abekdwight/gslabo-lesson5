@@ -113,9 +113,7 @@ $utilityCategoryIds = Category::whereIn('name', $utilityCategoryNames)->pluck('i
 今月の合計を出します。
 
 ```php
-Transaction::whereIn('category_id', $utilityCategoryIds)
-    ->whereBetween('occurred_at', [now()->startOfMonth()->format('Y-m-d'), now()->endOfMonth()->format('Y-m-d')])
-    ->sum('amount');
+Transaction::whereIn('category_id', $utilityCategoryIds)->whereBetween('occurred_at', [now()->startOfMonth()->format('Y-m-d'), now()->endOfMonth()->format('Y-m-d')])->sum('amount');
 ```
 
 ```
@@ -128,6 +126,10 @@ Transaction::whereIn('category_id', $utilityCategoryIds)
 - `whereBetween('occurred_at', [開始, 終了])` は「この範囲に入る」条件です。`now()` は現在日時で、`startOfMonth()` と `endOfMonth()` で今月の初日と末日にできます。
 - `sum('amount')` は、条件に合った行の `amount` を合計します。
 - メソッドをつなぐたびに問い合わせの条件が組み上がり、`sum()` などを呼んだ時点で SQL が実行されます。計算するのはデータベースで、PHP 側にループは書きません。[クエリビルダ](https://readouble.com/laravel/13.x/ja/queries.html)
+
+!!! warning "つまずきポイント：tinker で PARSE ERROR が出る"
+
+    tinker は1行ずつ実行します。メソッドをつないだ命令を途中で改行して貼ると、2行目以降だけが実行されて `PHP Parse error: Syntax error, unexpected T_OBJECT_OPERATOR` になります。つないだ命令は1行のまま貼ってください。行末で閉じていない `(` や `[` があるときは、閉じるまで次の行に続けて書けます。
 
 これをコントローラに置きます。`app/Http/Controllers/TransactionController.php` の `index()` を書き換えます。
 
